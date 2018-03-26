@@ -100,4 +100,9 @@ ENV/
 # mypy
 .mypy_cache/
 
+# vscode
+.vscode/
+
 RUNS/
+
+.DS_Store
