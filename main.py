@@ -1,4 +1,5 @@
 import os.path
+import time
 import warnings
 import tensorflow as tf
 import helper
@@ -112,11 +113,14 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
 
     for i in range(epochs):
         print("EPOCH {} ...".format(i+1))
+        start = time.time()
         for image, label in get_batches_fn(batch_size):
             _, loss = sess.run([train_op, cross_entropy_loss],
                                feed_dict={input_image: image, correct_label: label,
                                           keep_prob: 0.5, learning_rate: 0.0009})
             print("Loss: = {:.3f}".format(loss))
+        end = time.time() 
+        print("EPOCH time {}".format(end - start))
         print()
 
 
@@ -133,14 +137,14 @@ def run():
     # Download pretrained vgg model
     helper.maybe_download_pretrained_vgg(data_dir)
 
-    saver = tf.train.Saver()
-
     # OPTIONAL: Train and Inference on the cityscapes dataset instead of the Kitti dataset.
     # You'll need a GPU with at least 10 teraFLOPS to train on.
     #  https://www.cityscapes-dataset.com/
 
+    builder = tf.saved_model.builder.SavedModelBuilder(runs_dir)
+
     with tf.Session() as sess:
-        epochs = 1
+        epochs = 50
         batch_size = 32
         correct_label = tf.placeholder(tf.int32,
                                        [None, None, None, num_classes],
@@ -166,8 +170,20 @@ def run():
                  train_op, cross_entropy_loss, image_input,
                  correct_label, keep_prob, learning_rate)
 
-        
-        saver.save(sess, runs_dir)
+        tensor_info_x = tf.saved_model.utils.build_tensor_info(image_input)
+        tensor_info_y = tf.saved_model.utils.build_tensor_info(logits)
+        prediction_signature = (
+            tf.saved_model.signature_def_utils.build_signature_def(
+                inputs={'images': tensor_info_x},
+                outputs={'scores': tensor_info_y},
+                method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME))
+        legacy_init_op = tf.group(tf.tables_initializer(), name='legacy_init_op')
+        builder.add_meta_graph_and_variables(
+            sess, [tf.saved_model.tag_constants.SERVING],
+            signature_def_map={ 'predict_images': prediction_signature},
+            assets_collection=tf.get_collection(tf.GraphKeys.ASSET_FILEPATHS),
+            legacy_init_op=legacy_init_op)
+        builder.save()
 
         helper.save_inference_samples(
             runs_dir, data_dir, sess, image_shape, logits, keep_prob, image_input)
