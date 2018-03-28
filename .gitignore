@@ -104,5 +104,6 @@ ENV/
 .vscode/
 
 RUNS/
+runs/
 
 .DS_Store

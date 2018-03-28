@@ -49,23 +49,29 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     """
     conv_1x1 = tf.layers.conv2d(
         vgg_layer7_out, num_classes, 1, padding='same',
+        kernel_initializer= tf.random_normal_initializer(stddev=0.01),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
     output = tf.layers.conv2d_transpose(
         conv_1x1, num_classes, 4, 2, padding='same',
+        kernel_initializer= tf.random_normal_initializer(stddev=0.01),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
     layer4_reshape = tf.layers.conv2d(
         vgg_layer4_out, num_classes, 1, padding='same',
+        kernel_initializer= tf.random_normal_initializer(stddev=0.01),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
     output = tf.add(output, layer4_reshape)
     output = tf.layers.conv2d_transpose(
         output, num_classes, 4, 2, padding='same',
+        kernel_initializer= tf.random_normal_initializer(stddev=0.01),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
     layer3_reshape = tf.layers.conv2d(
         vgg_layer3_out, num_classes, 1, padding='same',
+        kernel_initializer= tf.random_normal_initializer(stddev=0.01),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
     output = tf.add(output, layer3_reshape)
     return tf.layers.conv2d_transpose(
         output, num_classes, 16, 8, padding='same',
+        kernel_initializer= tf.random_normal_initializer(stddev=0.01),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
 
 
@@ -83,7 +89,7 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     """
     logits = tf.reshape(nn_last_layer, (-1, num_classes))
     labels = tf.reshape(correct_label, (-1, num_classes))
-    cross_entropy_loss = tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels, logits=logits,)
+    cross_entropy_loss = tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels, logits=logits)
     cross_entropy_loss = tf.reduce_mean(cross_entropy_loss)
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
     train_op = optimizer.minimize(cross_entropy_loss)
@@ -117,7 +123,7 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
         for image, label in get_batches_fn(batch_size):
             _, loss = sess.run([train_op, cross_entropy_loss],
                                feed_dict={input_image: image, correct_label: label,
-                                          keep_prob: 0.5, learning_rate: 0.0009})
+                                          keep_prob: 0.9, learning_rate: 0.009})
             print("Loss: = {:.3f}".format(loss))
         end = time.time() 
         print("EPOCH time {}".format(end - start))
