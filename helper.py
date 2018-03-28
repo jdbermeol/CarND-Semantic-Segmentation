@@ -1,14 +1,13 @@
+import os.path
+from glob import glob
 import re
 import random
-import numpy as np
-import os.path
-import scipy.misc
 import shutil
-import zipfile
-import time
-import tensorflow as tf
-from glob import glob
 from urllib.request import urlretrieve
+import zipfile
+import numpy as np
+import scipy.misc
+import tensorflow as tf
 from tqdm import tqdm
 
 
@@ -98,6 +97,19 @@ def gen_batch_function(data_folder, image_shape):
     return get_batches_fn
 
 
+def gen_image_segmentation(sess, logits, keep_prob, image_pl, image, image_shape):
+    im_softmax = sess.run(
+        [tf.nn.softmax(logits)],
+        {keep_prob: 1.0, image_pl: [image]})
+    im_softmax = im_softmax[0][:, 1].reshape(image_shape[0], image_shape[1])
+    segmentation = (im_softmax > 0.5).reshape(image_shape[0], image_shape[1], 1)
+    mask = np.dot(segmentation, np.array([[0, 255, 0, 127]]))
+    mask = scipy.misc.toimage(mask, mode="RGBA")
+    street_im = scipy.misc.toimage(image)
+    street_im.paste(mask, box=None, mask=mask)
+    return street_im
+
+
 def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape):
     """
     Generate test output using the test images
@@ -111,18 +123,8 @@ def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape)
     """
     for image_file in glob(os.path.join(data_folder, 'image_2', '*.png')):
         image = scipy.misc.imresize(scipy.misc.imread(image_file), image_shape)
-
-        im_softmax = sess.run(
-            [tf.nn.softmax(logits)],
-            {keep_prob: 1.0, image_pl: [image]})
-        im_softmax = im_softmax[0][:, 1].reshape(image_shape[0], image_shape[1])
-        segmentation = (im_softmax > 0.5).reshape(image_shape[0], image_shape[1], 1)
-        mask = np.dot(segmentation, np.array([[0, 255, 0, 127]]))
-        mask = scipy.misc.toimage(mask, mode="RGBA")
-        street_im = scipy.misc.toimage(image)
-        street_im.paste(mask, box=None, mask=mask)
-
-        yield os.path.basename(image_file), np.array(street_im)
+        yield (os.path.basename(image_file),
+               gen_image_segmentation(sess, logits, keep_prob, image_pl, image, image_shape))
 
 
 def create_folder(output_dir):
@@ -136,6 +138,14 @@ def save_inference_samples(output_dir, data_dir, sess, image_shape, logits, keep
     # Run NN on test images and save them to HD
     print('Training Finished. Saving test images to: {}'.format(output_dir))
     image_outputs = gen_test_output(
-        sess, logits, keep_prob, input_image, os.path.join(data_dir, 'data_road/testing'), image_shape)
+        sess, logits, keep_prob, input_image,
+        os.path.join(data_dir, 'data_road/testing'), image_shape)
     for name, image in image_outputs:
         scipy.misc.imsave(os.path.join(output_dir, name), image)
+
+
+def load_tensors(sess, path, tag, names):
+    tf.saved_model.loader.load(sess, [tag], path)
+    graph = tf.get_default_graph()
+
+    return (graph.get_tensor_by_name(name) for name in names)

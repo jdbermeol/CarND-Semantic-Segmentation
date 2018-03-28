@@ -25,14 +25,10 @@ def load_vgg(sess, vgg_path):
         (image_input, keep_prob, layer3_out, layer4_out, layer7_out)
     """
     vgg_tag = 'vgg16'
-    tf.saved_model.loader.load(sess, [vgg_tag], vgg_path)
-    graph = tf.get_default_graph()
-
-    return (graph.get_tensor_by_name('image_input:0'),
-            graph.get_tensor_by_name('keep_prob:0'),
-            graph.get_tensor_by_name('layer3_out:0'),
-            graph.get_tensor_by_name('layer4_out:0'),
-            graph.get_tensor_by_name('layer7_out:0'))
+    return helper.load_tensors(
+        sess, vgg_path, vgg_tag,
+        ['image_input:0', 'keep_prob:0', 'layer3_out:0', 'layer4_out:0', 'layer7_out:0']
+    )
 
 
 tests.test_load_vgg(load_vgg, tf)
@@ -49,30 +45,31 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     """
     conv_1x1 = tf.layers.conv2d(
         vgg_layer7_out, num_classes, 1, padding='same',
-        kernel_initializer= tf.random_normal_initializer(stddev=0.01),
+        kernel_initializer=tf.random_normal_initializer(stddev=0.01),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
     output = tf.layers.conv2d_transpose(
         conv_1x1, num_classes, 4, 2, padding='same',
-        kernel_initializer= tf.random_normal_initializer(stddev=0.01),
+        kernel_initializer=tf.random_normal_initializer(stddev=0.01),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
     layer4_reshape = tf.layers.conv2d(
         vgg_layer4_out, num_classes, 1, padding='same',
-        kernel_initializer= tf.random_normal_initializer(stddev=0.01),
+        kernel_initializer=tf.random_normal_initializer(stddev=0.01),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
     output = tf.add(output, layer4_reshape)
     output = tf.layers.conv2d_transpose(
         output, num_classes, 4, 2, padding='same',
-        kernel_initializer= tf.random_normal_initializer(stddev=0.01),
+        kernel_initializer=tf.random_normal_initializer(stddev=0.01),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
     layer3_reshape = tf.layers.conv2d(
         vgg_layer3_out, num_classes, 1, padding='same',
-        kernel_initializer= tf.random_normal_initializer(stddev=0.01),
+        kernel_initializer=tf.random_normal_initializer(stddev=0.01),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
     output = tf.add(output, layer3_reshape)
     return tf.layers.conv2d_transpose(
         output, num_classes, 16, 8, padding='same',
-        kernel_initializer= tf.random_normal_initializer(stddev=0.01),
-        kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
+        kernel_initializer=tf.random_normal_initializer(stddev=0.01),
+        kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3),
+        name='nn_last_layer')
 
 
 tests.test_layers(layers)
@@ -87,10 +84,10 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     :param num_classes: Number of classes to classify
     :return: Tuple of (logits, train_op, cross_entropy_loss)
     """
-    logits = tf.reshape(nn_last_layer, (-1, num_classes))
+    logits = tf.reshape(nn_last_layer, (-1, num_classes), name='logits')
     labels = tf.reshape(correct_label, (-1, num_classes))
     cross_entropy_loss = tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels, logits=logits)
-    cross_entropy_loss = tf.reduce_mean(cross_entropy_loss)
+    cross_entropy_loss = tf.reduce_mean(cross_entropy_loss, name='cross_entropy_loss')
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
     train_op = optimizer.minimize(cross_entropy_loss)
     return logits, train_op, cross_entropy_loss
@@ -123,9 +120,9 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
         for image, label in get_batches_fn(batch_size):
             _, loss = sess.run([train_op, cross_entropy_loss],
                                feed_dict={input_image: image, correct_label: label,
-                                          keep_prob: 0.9, learning_rate: 0.009})
+                                          keep_prob: 0.5, learning_rate: 0.00001})
             print("Loss: = {:.3f}".format(loss))
-        end = time.time() 
+        end = time.time()
         print("EPOCH time {}".format(end - start))
         print()
 
@@ -138,20 +135,15 @@ def run():
     image_shape = (160, 576)
     data_dir = './data'
     runs_dir = os.path.join('./runs', str(time.time()))
+    helper.create_folder(runs_dir)
     tests.test_for_kitti_dataset(data_dir)
 
     # Download pretrained vgg model
     helper.maybe_download_pretrained_vgg(data_dir)
 
-    # OPTIONAL: Train and Inference on the cityscapes dataset instead of the Kitti dataset.
-    # You'll need a GPU with at least 10 teraFLOPS to train on.
-    #  https://www.cityscapes-dataset.com/
-
-    builder = tf.saved_model.builder.SavedModelBuilder(runs_dir)
-
     with tf.Session() as sess:
-        epochs = 50
-        batch_size = 32
+        epochs = 48
+        batch_size = 5
         correct_label = tf.placeholder(tf.int32,
                                        [None, None, None, num_classes],
                                        name='correct_label')
@@ -163,8 +155,6 @@ def run():
         get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'),
                                                    image_shape)
 
-        # OPTIONAL: Augment Images for better results
-        #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
 
         image_input, keep_prob, vgg_layer3_out, vgg_layer4_out, vgg_layer7_out = load_vgg(
             sess, vgg_path)
@@ -176,25 +166,8 @@ def run():
                  train_op, cross_entropy_loss, image_input,
                  correct_label, keep_prob, learning_rate)
 
-        tensor_info_x = tf.saved_model.utils.build_tensor_info(image_input)
-        tensor_info_y = tf.saved_model.utils.build_tensor_info(logits)
-        prediction_signature = (
-            tf.saved_model.signature_def_utils.build_signature_def(
-                inputs={'images': tensor_info_x},
-                outputs={'scores': tensor_info_y},
-                method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME))
-        legacy_init_op = tf.group(tf.tables_initializer(), name='legacy_init_op')
-        builder.add_meta_graph_and_variables(
-            sess, [tf.saved_model.tag_constants.SERVING],
-            signature_def_map={ 'predict_images': prediction_signature},
-            assets_collection=tf.get_collection(tf.GraphKeys.ASSET_FILEPATHS),
-            legacy_init_op=legacy_init_op)
-        builder.save()
-
         helper.save_inference_samples(
             runs_dir, data_dir, sess, image_shape, logits, keep_prob, image_input)
-
-        # OPTIONAL: Apply the trained model to a video
 
 
 if __name__ == '__main__':
